@@ -4,6 +4,7 @@ import com.example.advancedtransaction.entity.Customer;
 import com.example.advancedtransaction.entity.Order;
 import com.example.advancedtransaction.entity.OrderItem;
 import com.example.advancedtransaction.entity.Product;
+import com.example.advancedtransaction.repository.CustomerRepository;
 import com.example.advancedtransaction.repository.OrderRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,36 +21,41 @@ public class OrderService {
     private final InventoryService inventoryService;
     private final PaymentService paymentService;
     private final NotificationService notificationService;
+    private final CustomerRepository customerRepository;
 
     public OrderService(OrderRepository orderRepository,
                         InventoryService inventoryService,
                         PaymentService paymentService,
-                        NotificationService notificationService) {
+                        NotificationService notificationService,
+                        CustomerRepository customerRepository) {
         this.orderRepository = orderRepository;
         this.inventoryService = inventoryService;
         this.paymentService = paymentService;
         this.notificationService = notificationService;
+        this.customerRepository = customerRepository;
     }
 
     @Transactional(rollbackFor = Exception.class)
     public Order createOrder(String customerEmail, Map<String, Integer> items) {
+
+        Customer customer = customerRepository.findByEmail(customerEmail)
+                .orElseGet(() -> {
+                    Customer newCustomer = new Customer("Customer", customerEmail);
+                    return customerRepository.save(newCustomer);
+                });
+
         // Generate order number
         String orderNumber = "ORD-" + UUID.randomUUID().toString().substring(0, 8);
 
-        // Create order
-        Order order = new Order(orderNumber, new Customer("Customer", customerEmail));
-
+        Order order = new Order(orderNumber, customer);
         BigDecimal totalAmount = BigDecimal.ZERO;
 
-        // Process each item
         for (Map.Entry<String, Integer> entry : items.entrySet()) {
             String sku = entry.getKey();
             Integer quantity = entry.getValue();
 
-            // Get product details
             Product product = inventoryService.getProduct(sku);
 
-            // Create order item
             OrderItem orderItem = new OrderItem();
             orderItem.setOrder(order);
             orderItem.setProduct(product);
@@ -64,10 +70,7 @@ public class OrderService {
         order.setTotalAmount(totalAmount);
         order.setStatus(Order.OrderStatus.PENDING);
 
-        // Save order
-        order = orderRepository.save(order);
-
-        return order;
+        return orderRepository.save(order);
     }
 
     @Transactional(rollbackFor = Exception.class)
